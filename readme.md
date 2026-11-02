@@ -1,4 +1,6 @@
-A command line tool for importing your Spotify playlists into Tidal. Due to various performance optimisations, it is particularly suited for periodic synchronisation of very large collections.
+A command line tool for keeping your Spotify and Tidal libraries in sync. Due to various performance optimisations, it is particularly suited for periodic synchronisation of very large collections.
+
+It transfers playlists and favorite tracks in either direction, can run a dry run first, and prints a comparison of both libraries.
 
 Installation
 -----------
@@ -46,6 +48,29 @@ or sync just your 'Liked Songs' with:
 ```bash
 spotify_to_tidal --sync-favorites
 ```
+
+### Transfer direction
+
+By default everything is copied from Spotify to Tidal. Use `--direction` to change that:
+
+```bash
+spotify_to_tidal --direction to-spotify          # Tidal -> Spotify
+spotify_to_tidal --direction both                # transfer both ways
+spotify_to_tidal --direction to-spotify --uri 1a2b3c4d-...   # one Tidal playlist
+```
+
+The direction can also be set in `config.yml` with `direction: to-tidal|to-spotify|both`.
+
+### Managing your libraries
+
+```bash
+spotify_to_tidal --list                  # compare both libraries, read-only
+spotify_to_tidal --direction to-spotify --dry-run
+```
+
+`--list` shows every playlist on both services with its track count and whether the other side has a playlist with the same name. `--dry-run` performs all matching and prints what it would write without touching either service.
+
+Spotify writes need the `playlist-modify-private`, `playlist-modify-public` and `user-library-modify` scopes. The tool detects a cached token that predates those scopes and re-runs the authorisation flow automatically.
 
 See example_config.yml for more configuration options, and `spotify_to_tidal --help` for more options.
 

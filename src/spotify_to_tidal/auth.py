@@ -12,7 +12,21 @@ __all__ = [
     'open_tidal_session'
 ]
 
-SPOTIFY_SCOPES = 'playlist-read-private, user-library-read'
+SPOTIFY_SCOPES = ('playlist-read-private, user-library-read, '
+                  'playlist-modify-public, playlist-modify-private, user-library-modify')
+
+
+def _token_lacks_scopes(credentials_manager, scopes: str) -> bool:
+    """ True when the cached token predates the scopes we now require. """
+    try:
+        token = credentials_manager.cache_handler.get_cached_token()
+    except Exception:
+        return False
+    if not token:
+        return False
+    cached = set((token.get('scope') or '').split())
+    required = set(scopes.replace(',', ' ').split())
+    return not required.issubset(cached)
 
 def _has_graphical_browser() -> bool:
     """ Whether opening a URL in a browser is likely to work.
@@ -32,6 +46,11 @@ def open_spotify_session(config) -> spotipy.Spotify:
        redirect_uri=config['redirect_uri'],
        requests_timeout=2,
        open_browser=config.get('open_browser', True))
+    if _token_lacks_scopes(credentials_manager, SPOTIFY_SCOPES):
+        print("Cached Spotify token is missing write scopes, re-authenticating")
+        cache_path = getattr(credentials_manager.cache_handler, 'cache_path', None)
+        if cache_path and os.path.exists(cache_path):
+            os.remove(cache_path)
     try:
         credentials_manager.get_access_token(as_dict=False)
     except spotipy.SpotifyOauthError:

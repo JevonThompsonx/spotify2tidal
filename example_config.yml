@@ -20,6 +20,14 @@ spotify:
 #   - when false: favorites can only be synced manually via --sync-favorites argument
 sync_favorites_default: true
 
+# default transfer direction when --direction is not given:
+#   to-tidal   Spotify -> Tidal (default)
+#   to-spotify Tidal -> Spotify
+#   both       transfer both ways
+direction: to-tidal
+# show what would change without writing anything (--dry-run overrides)
+dry_run: false
+
 # move newly created Tidal playlists into a folder derived from their name:
 #   "Spring 2026 🔥" -> folder "Spring 2026"
 # rules are checked first (case-insensitive substring match) before the season
