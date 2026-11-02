@@ -11,8 +11,8 @@ class FakeArtist:
 
 
 class FakeTidalTrack:
-    def __init__(self, name='Song', artist='Artist', duration=200, isrc=None):
-        self.id = 1
+    def __init__(self, name='Song', artist='Artist', duration=200, isrc=None, tid=1):
+        self.id = tid
         self.name = name
         self.duration = duration
         self.isrc = isrc
@@ -112,3 +112,53 @@ def test_apply_playlist_update_dry_run_writes_nothing(capsys):
     reverse.apply_playlist_update(FakeSpotify(), 'pl', {'action': 'append', 'items': ['a']}, dry_run=True)
 
     assert '[dry-run]' in capsys.readouterr().out
+
+
+def test_match_existing_tracks_pairs_by_isrc():
+    tidal = FakeTidalTrack(isrc='GB123')
+    candidate = spotify_track('sp1')
+    candidate['external_ids'] = {'isrc': 'GB123'}
+
+    assert reverse.match_existing_tracks([tidal], [candidate]) == {1: candidate}
+
+
+def test_match_existing_tracks_does_not_reuse_a_candidate():
+    first, second = FakeTidalTrack(tid=1), FakeTidalTrack(tid=2)
+    candidate = spotify_track('sp1')
+
+    matched = reverse.match_existing_tracks([first, second], [candidate])
+
+    assert matched == {1: candidate}
+
+
+def test_resolve_spotify_tracks_uses_existing_without_searching():
+    calls = []
+
+    def search(**kwargs):
+        calls.append(kwargs)
+        raise AssertionError('should not search when the track is already in the playlist')
+
+    session = SimpleNamespace(search=search)
+    candidate = spotify_track('sp1')
+    tidal = FakeTidalTrack()
+
+    result = reverse.resolve_spotify_tracks(
+        [tidal], session, reverse.SpotifyTrackCache(), 'test', existing={tidal.id: candidate}
+    )
+
+    assert result == [candidate]
+    assert calls == []
+
+
+def test_spotify_track_cache_round_trip(tmp_path):
+    path = tmp_path / 'cache.json'
+    cache = reverse.SpotifyTrackCache(str(path))
+    cache.insert(1, spotify_track('sp1'))
+    cache.insert(2, None)
+    cache.save()
+
+    reloaded = reverse.SpotifyTrackCache(str(path))
+
+    assert reloaded.get(1)['id'] == 'sp1'
+    assert reloaded.has(2)
+    assert reloaded.get(2) is None

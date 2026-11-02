@@ -29,8 +29,9 @@ def simple(input_string: str) -> str:
     return input_string.split('-')[0].strip().split('(')[0].strip().split('[')[0].strip()
 
 def isrc_match(tidal_track: tidalapi.Track, spotify_track) -> bool:
-    if "isrc" in spotify_track["external_ids"]:
-        return tidal_track.isrc == spotify_track["external_ids"]["isrc"]
+    external_ids = spotify_track.get("external_ids") or {}
+    if "isrc" in external_ids:
+        return tidal_track.isrc == external_ids["isrc"]
     return False
 
 def duration_match(tidal_track: tidalapi.Track, spotify_track, tolerance=2) -> bool:

@@ -2,6 +2,7 @@
 """ Transfer Tidal playlists and favorites to Spotify. """
 
 import asyncio
+import json
 import time
 from typing import Dict, List, Optional, Sequence
 
@@ -29,10 +30,20 @@ def _chunks(items: Sequence, size: int):
 
 
 class SpotifyTrackCache:
-    """ Maps Tidal track ids to the best matching Spotify track (or None). """
+    """ Maps Tidal track ids to the best matching Spotify track (or None).
 
-    def __init__(self):
+    Persisted to disk so a run that hits Spotify's quota can resume without
+    searching the same tracks again.
+    """
+
+    def __init__(self, path: str = '.cache-spotify.json'):
+        self.path = path
         self._data: Dict[int, Optional[dict]] = {}
+        try:
+            with open(path, encoding='utf-8') as cache_file:
+                self._data = {int(key): value for key, value in json.load(cache_file).items()}
+        except (OSError, ValueError):
+            self._data = {}
 
     def get(self, tidal_id) -> Optional[dict]:
         return self._data.get(tidal_id)
@@ -42,6 +53,13 @@ class SpotifyTrackCache:
 
     def insert(self, tidal_id, spotify_track: Optional[dict]):
         self._data[tidal_id] = spotify_track
+
+    def save(self):
+        try:
+            with open(self.path, 'w', encoding='utf-8') as cache_file:
+                json.dump({str(key): value for key, value in self._data.items()}, cache_file)
+        except OSError as error:
+            print(f"Could not write Spotify match cache: {error}")
 
 
 def search_spotify_for_track(tidal_track: tidalapi.Track, spotify_session: spotipy.Spotify) -> Optional[dict]:
@@ -99,18 +117,43 @@ def apply_playlist_update(spotify_session: spotipy.Spotify, playlist_id: str, pl
         spotify_session.playlist_add_items(playlist_id, chunk)
 
 
-def get_spotify_playlist_track_ids(spotify_session: spotipy.Spotify, playlist_id: str) -> List[str]:
-    ids, offset = [], 0
+def get_spotify_playlist_tracks(spotify_session: spotipy.Spotify, playlist_id: str) -> List[dict]:
+    tracks, offset = [], 0
     while True:
         page = spotify_session.playlist_items(playlist_id, offset=offset, additional_types=('track',))
         for entry in page['items']:
             track = entry.get('item') or entry.get('track')
             if track and track.get('id'):
-                ids.append(track['id'])
+                tracks.append(track)
         if not page['next']:
             break
         offset += page['limit']
-    return ids
+    return tracks
+
+
+def get_spotify_playlist_track_ids(spotify_session: spotipy.Spotify, playlist_id: str) -> List[str]:
+    return [track['id'] for track in get_spotify_playlist_tracks(spotify_session, playlist_id)]
+
+
+def match_existing_tracks(tidal_tracks: Sequence[tidalapi.Track],
+                          spotify_tracks: Sequence[dict]) -> Dict[int, dict]:
+    """ Pair Tidal tracks with Spotify tracks already in the destination playlist.
+
+    Reusing these avoids a search request per track, which matters because
+    Spotify's development-mode quota is small.
+    """
+    used = set()
+    matched: Dict[int, dict] = {}
+    for tidal_track in tidal_tracks:
+        for candidate in spotify_tracks:
+            if candidate['id'] in used:
+                continue
+            if match(tidal_track, candidate):
+                matched[tidal_track.id] = candidate
+                used.add(candidate['id'])
+                break
+    return matched
+
 
 
 def get_owned_spotify_playlists(spotify_session: spotipy.Spotify) -> List[dict]:
@@ -143,10 +186,15 @@ def create_spotify_playlist(spotify_session: spotipy.Spotify, name: str, descrip
 
 
 def resolve_spotify_tracks(tidal_tracks: Sequence[tidalapi.Track], spotify_session: spotipy.Spotify,
-                           cache: SpotifyTrackCache, description: str) -> List[dict]:
+                           cache: SpotifyTrackCache, description: str,
+                           existing: Optional[Dict[int, dict]] = None) -> List[dict]:
     found = []
+    existing = existing or {}
     for tidal_track in tqdm(tidal_tracks, desc=description):
         if not tidal_track.available:
+            continue
+        if tidal_track.id in existing:
+            found.append(existing[tidal_track.id])
             continue
         cached = cache.get(tidal_track.id)
         if cache.has(tidal_track.id):
@@ -170,9 +218,15 @@ def sync_playlist_to_spotify(spotify_session: spotipy.Spotify, tidal_session: ti
         print("Tidal playlist is empty, skipping")
         return {'name': tidal_playlist.name, 'matched': 0, 'missing': 0, 'written': 0}
 
+    existing_tracks = (get_spotify_playlist_tracks(spotify_session, spotify_playlist['id'])
+                       if spotify_playlist else [])
+    already_matched = match_existing_tracks(tidal_tracks, existing_tracks)
+
     spotify_tracks = resolve_spotify_tracks(
-        tidal_tracks, spotify_session, cache, f"Searching Spotify for tracks in '{tidal_playlist.name}'"
+        tidal_tracks, spotify_session, cache, f"Searching Spotify for tracks in '{tidal_playlist.name}'",
+        existing=already_matched
     )
+    cache.save()
     if not spotify_tracks:
         print("No matching tracks found on Spotify, skipping")
         return {'name': tidal_playlist.name, 'matched': 0, 'missing': len(tidal_tracks), 'written': 0}
@@ -193,7 +247,7 @@ def sync_playlist_to_spotify(spotify_session: spotipy.Spotify, tidal_session: ti
         )
         print(f"Created Spotify playlist '{tidal_playlist.name}'")
 
-    current = get_spotify_playlist_track_ids(spotify_session, spotify_playlist['id'])
+    current = [track['id'] for track in existing_tracks]
     desired_ids = [uri.split(':')[-1] for uri in uris]
     plan = plan_playlist_update(current, desired_ids)
     apply_playlist_update(spotify_session, spotify_playlist['id'], plan, dry_run)
@@ -214,6 +268,7 @@ def sync_favorites_to_spotify(spotify_session: spotipy.Spotify, tidal_session: t
     spotify_tracks = resolve_spotify_tracks(
         tidal_tracks, spotify_session, cache, "Searching Spotify for favorite tracks"
     )
+    cache.save()
     ids = [track['id'] for track in spotify_tracks]
     if not ids:
         print("No matching favorite tracks found on Spotify")
