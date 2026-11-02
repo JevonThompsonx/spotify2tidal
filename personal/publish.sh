@@ -22,4 +22,5 @@ if git ls-files --error-unmatch personal/README.md >/dev/null 2>&1; then
     git commit -m "chore: keep the personal overlay off the public branch"
 fi
 git push origin main
+git push forgejo main
 git checkout personal
