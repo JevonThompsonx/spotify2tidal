@@ -49,6 +49,26 @@ spotify_to_tidal --sync-favorites
 
 See example_config.yml for more configuration options, and `spotify_to_tidal --help` for more options.
 
+### Organizing playlists into folders
+
+Set `organize_folders: true` in `config.yml` to move newly created Tidal playlists into a folder derived from their name:
+
+| Playlist name | Folder |
+| --- | --- |
+| `Spring 2026 🔥` | `Spring 2026` |
+| `2026 Fall Party princess 👑` | `Fall 2026` |
+
+Folders are created when missing. `folder_rules` are checked first as case-insensitive substring matches, which lets a thematic folder win over the season:
+
+```yaml
+organize_folders: true
+folder_rules:
+  - match: princess
+    folder: Princess
+```
+
+Only playlists created during a run are filed; playlists already on Tidal are left wherever you put them.
+
 ---
 
 #### Join our amazing community as a code contributor

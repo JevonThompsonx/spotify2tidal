@@ -20,6 +20,14 @@ spotify:
 #   - when false: favorites can only be synced manually via --sync-favorites argument
 sync_favorites_default: true
 
+# move newly created Tidal playlists into a folder derived from their name:
+#   "Spring 2026 🔥" -> folder "Spring 2026"
+# rules are checked first (case-insensitive substring match) before the season
+organize_folders: false
+#folder_rules:
+#  - match: princess
+#    folder: Princess
+
 # increasing these parameters should increase the search speed, while decreasing reduces likelihood of 429 errors
 max_concurrency: 10 # max concurrent connections at any given time
 rate_limit:      10 # max sustained connections per second

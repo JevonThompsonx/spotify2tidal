@@ -11,7 +11,7 @@ import requests
 import sys
 import spotipy
 import tidalapi
-from .tidalapi_patch import add_multiple_tracks_to_playlist, clear_tidal_playlist, get_all_favorites, get_all_playlists, get_all_playlist_tracks
+from .tidalapi_patch import add_multiple_tracks_to_playlist, clear_tidal_playlist, file_playlist_in_folder, folder_name_for_playlist, get_all_favorites, get_all_playlists, get_all_playlist_tracks
 import time
 from tqdm.asyncio import tqdm as atqdm
 from tqdm import tqdm
@@ -312,6 +312,14 @@ async def sync_playlist(spotify_session: spotipy.Spotify, tidal_session: tidalap
         print(f"No playlist found on Tidal corresponding to Spotify playlist: '{spotify_playlist['name']}', creating new playlist")
         tidal_playlist =  tidal_session.user.create_playlist(spotify_playlist['name'], spotify_playlist['description'])
         old_tidal_tracks = []
+        if config.get('organize_folders', False):
+            folder_name = folder_name_for_playlist(spotify_playlist['name'], config.get('folder_rules'))
+            if folder_name:
+                try:
+                    file_playlist_in_folder(tidal_session, tidal_playlist, folder_name)
+                    print(f"Moved new playlist into Tidal folder '{folder_name}'")
+                except Exception as e:
+                    print(f"Could not move playlist into Tidal folder '{folder_name}': {e}")
 
     # Extract the new tracks from the playlist that we haven't already seen before
     populate_track_match_cache(spotify_tracks, old_tidal_tracks)

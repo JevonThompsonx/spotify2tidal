@@ -1,11 +1,60 @@
 import asyncio
 import math
+import re
 import time
 from typing import List
 import requests
 import tidalapi
+from tidalapi.playlist import Folder
 from tqdm import tqdm
 from tqdm.asyncio import tqdm as atqdm
+
+SEASONS = {'spring': 'Spring', 'summer': 'Summer', 'fall': 'Fall', 'autumn': 'Fall', 'winter': 'Winter'}
+
+#: Matches "Spring 2026", "2026 Fall", "Summer🍃 2026" and similar names.
+SEASON_YEAR = re.compile(r'(spring|summer|fall|autumn|winter)\D{0,3}(\d{4})', re.IGNORECASE)
+YEAR_SEASON = re.compile(r'(\d{4})\D{0,3}(spring|summer|fall|autumn|winter)', re.IGNORECASE)
+
+
+def folder_name_for_playlist(name: str, rules=None) -> str | None:
+    """ Return the folder a playlist should live in, or None to leave it at the root.
+
+    Custom rules are matched as case-insensitive substrings before the
+    '<Season> <Year>' convention, so a rule can claim e.g. all "princess"
+    playlists before the season match applies.
+    """
+    lowered = name.lower()
+    for rule in rules or []:
+        if rule.get('match', '').lower() in lowered:
+            return rule.get('folder')
+    match = SEASON_YEAR.search(name)
+    if match:
+        return f"{SEASONS[match.group(1).lower()]} {match.group(2)}"
+    match = YEAR_SEASON.search(name)
+    if match:
+        return f"{SEASONS[match.group(2).lower()]} {match.group(1)}"
+    return None
+
+
+def get_or_create_folder(session: tidalapi.Session, name: str) -> Folder:
+    """ Find a root-level playlist folder by name, creating it when missing. """
+    offset = 0
+    while True:
+        folders = session.user.favorites.playlist_folders(limit=50, offset=offset, parent_folder_id='root')
+        for folder in folders:
+            if folder.name.strip().casefold() == name.strip().casefold():
+                return folder
+        if len(folders) < 50:
+            break
+        offset += 50
+    return session.user.create_folder(name)
+
+
+def file_playlist_in_folder(session: tidalapi.Session, playlist: tidalapi.UserPlaylist, folder_name: str) -> bool:
+    """ Move a playlist into the named folder, creating the folder if needed. """
+    folder = get_or_create_folder(session, folder_name)
+    return folder.move_items_to_folder([playlist.id], folder.id)
+
 
 
 def _retry_on_stale_etag(playlist: tidalapi.UserPlaylist, operation, retries: int = 5):
