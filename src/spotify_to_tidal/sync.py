@@ -310,16 +310,19 @@ async def sync_playlist(spotify_session: spotipy.Spotify, tidal_session: tidalap
         old_tidal_tracks = await get_all_playlist_tracks(tidal_playlist)
     else:
         print(f"No playlist found on Tidal corresponding to Spotify playlist: '{spotify_playlist['name']}', creating new playlist")
-        tidal_playlist =  tidal_session.user.create_playlist(spotify_playlist['name'], spotify_playlist['description'])
         old_tidal_tracks = []
-        if config.get('organize_folders', False):
-            folder_name = folder_name_for_playlist(spotify_playlist['name'], config.get('folder_rules'))
-            if folder_name:
-                try:
-                    file_playlist_in_folder(tidal_session, tidal_playlist, folder_name)
-                    print(f"Moved new playlist into Tidal folder '{folder_name}'")
-                except Exception as e:
-                    print(f"Could not move playlist into Tidal folder '{folder_name}': {e}")
+        if config.get('dry_run'):
+            print(f"[dry-run] would create Tidal playlist '{spotify_playlist['name']}'")
+        else:
+            tidal_playlist = tidal_session.user.create_playlist(spotify_playlist['name'], spotify_playlist['description'])
+            if config.get('organize_folders', False):
+                folder_name = folder_name_for_playlist(spotify_playlist['name'], config.get('folder_rules'))
+                if folder_name:
+                    try:
+                        file_playlist_in_folder(tidal_session, tidal_playlist, folder_name)
+                        print(f"Moved new playlist into Tidal folder '{folder_name}'")
+                    except Exception as e:
+                        print(f"Could not move playlist into Tidal folder '{folder_name}': {e}")
 
     # Extract the new tracks from the playlist that we haven't already seen before
     populate_track_match_cache(spotify_tracks, old_tidal_tracks)
@@ -330,6 +333,8 @@ async def sync_playlist(spotify_session: spotipy.Spotify, tidal_session: tidalap
     old_tidal_track_ids = [t.id for t in old_tidal_tracks]
     if new_tidal_track_ids == old_tidal_track_ids:
         print("No changes to write to Tidal playlist")
+    elif config.get('dry_run'):
+        print(f"[dry-run] would write {len(new_tidal_track_ids)} track(s) to Tidal playlist '{spotify_playlist['name']}'")
     elif new_tidal_track_ids[:len(old_tidal_track_ids)] == old_tidal_track_ids:
         # Append new tracks to the existing playlist if possible
         add_multiple_tracks_to_playlist(tidal_playlist, new_tidal_track_ids[len(old_tidal_track_ids):])
@@ -363,8 +368,11 @@ async def sync_favorites(spotify_session: spotipy.Spotify, tidal_session: tidala
     await search_new_tracks_on_tidal(tidal_session, spotify_tracks, "Favorites", config)
     new_tidal_favorite_ids = get_new_tidal_favorites()
     if new_tidal_favorite_ids:
-        for tidal_id in tqdm(new_tidal_favorite_ids, desc="Adding new tracks to Tidal favorites"):
-            tidal_session.user.favorites.add_track(tidal_id)
+        if config.get('dry_run'):
+            print(f"[dry-run] would add {len(new_tidal_favorite_ids)} track(s) to Tidal favorites")
+        else:
+            for tidal_id in tqdm(new_tidal_favorite_ids, desc="Adding new tracks to Tidal favorites"):
+                tidal_session.user.favorites.add_track(tidal_id)
     else:
         print("No new tracks to add to Tidal favorites")
 

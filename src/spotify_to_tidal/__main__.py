@@ -73,6 +73,7 @@ def main():
 
     direction = args.direction or config.get('direction', 'to-tidal')
     dry_run = args.dry_run or config.get('dry_run', False)
+    config['dry_run'] = dry_run
 
     print("Opening Spotify session")
     spotify_session = _auth.open_spotify_session(config['spotify'])
