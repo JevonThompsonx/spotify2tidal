@@ -107,9 +107,11 @@ async def _get_all_chunks(url, session, parser, params={}) -> List[tidalapi.Trac
         The main library doesn't provide the total number of items or expose the raw json, so use this wrapper instead
     """
     def _make_request(offset: int=0):
-        new_params = params
-        new_params['offset'] = offset
-        return session.request.map_request(url, params=new_params)
+        # copy the params: map_request runs in parallel threads, and mutating a
+        # shared dict can send several pages with the same offset
+        request_params = dict(params)
+        request_params['offset'] = offset
+        return session.request.map_request(url, params=request_params)
 
     first_chunk_raw = _make_request()
     limit = first_chunk_raw['limit']
@@ -136,12 +138,50 @@ async def get_all_favorites(favorites: tidalapi.Favorites, order: str = "NAME", 
     return await _get_all_chunks(f"{favorites.base_url}/tracks", session=favorites.session, parser=favorites.session.parse_track, params=params)
 
 async def get_all_playlists(user: tidalapi.User, chunk_size: int=10) -> List[tidalapi.Playlist]:
-    """ Get all user playlists from Tidal in chunks """
+    """ Get all user playlists from Tidal, including those inside folders.
+
+    The v1 ``users/{id}/playlists`` endpoint silently omits some playlists, so
+    walk the v2 favourites/folders API instead.
+    """
     print(f"Loading playlists from Tidal user")
-    params = {
-        "limit": chunk_size,
-    }
-    return await _get_all_chunks(f"users/{user.id}/playlists", session=user.session, parser=user.playlist.parse_factory, params=params)
+    favorites = user.favorites
+    playlists: List[tidalapi.Playlist] = []
+    seen = set()
+
+    def add(items):
+        for playlist in items:
+            if playlist.id not in seen:
+                seen.add(playlist.id)
+                playlists.append(playlist)
+
+    offset = 0
+    while True:
+        page = favorites.playlists(limit=50, offset=offset)
+        add(page)
+        if len(page) < 50:
+            break
+        offset += 50
+
+    folders_to_visit = ['root']
+    while folders_to_visit:
+        parent = folders_to_visit.pop()
+        offset = 0
+        while True:
+            folders = favorites.playlist_folders(limit=50, offset=offset, parent_folder_id=parent)
+            for folder in folders:
+                item_offset = 0
+                while True:
+                    items = folder.items(offset=item_offset, limit=50)
+                    add(items)
+                    if len(items) < 50:
+                        break
+                    item_offset += 50
+                folders_to_visit.append(folder.id)
+            if len(folders) < 50:
+                break
+            offset += 50
+
+    return playlists
 
 async def get_all_playlist_tracks(playlist: tidalapi.Playlist, chunk_size: int=20) -> List[tidalapi.Track]:
     """ Get all tracks from Tidal playlist in chunks """
