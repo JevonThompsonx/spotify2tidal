@@ -6,7 +6,7 @@ cd "$(dirname "$0")/.."
 git push --force-with-lease forgejo personal
 
 git checkout main
-git merge personal --no-edit
+git merge personal --no-edit -X ours
 if git ls-files --error-unmatch personal/README.md >/dev/null 2>&1; then
     git rm -r --cached personal >/dev/null
     rm -rf personal
