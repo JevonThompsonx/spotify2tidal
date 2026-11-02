@@ -7,10 +7,53 @@ import tidalapi
 import webbrowser
 import yaml
 
+import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
+
 __all__ = [
     'open_spotify_session',
     'open_tidal_session'
 ]
+
+#: Refuse to sleep longer than this for a single retry (Spotify dev-mode
+#: quota exhaustion can otherwise park the process for most of a day).
+MAX_RETRY_AFTER_SECONDS = 600
+
+
+class _CappedRetry(Retry):
+    """ urllib3 retry policy that refuses very long Retry-After waits. """
+
+    def sleep(self, response=None):
+        header = response.headers.get('Retry-After') if response is not None else None
+        if header is not None:
+            try:
+                seconds = float(header)
+            except ValueError:
+                seconds = 0
+            if seconds > MAX_RETRY_AFTER_SECONDS:
+                raise requests.exceptions.RetryError(
+                    f"Spotify rate limit exceeded for {int(seconds)}s "
+                    "(development-mode quota). Try again later."
+                )
+        return super().sleep(response)
+
+
+def _spotify_http_session() -> requests.Session:
+    session = requests.Session()
+    retry = _CappedRetry(
+        total=3,
+        connect=3,
+        read=3,
+        status=3,
+        backoff_factor=0.3,
+        status_forcelist=[429, 500, 502, 503, 504],
+        allowed_methods=frozenset(['GET', 'POST', 'PUT', 'DELETE']),
+    )
+    adapter = HTTPAdapter(max_retries=retry)
+    session.mount('http://', adapter)
+    session.mount('https://', adapter)
+    return session
 
 SPOTIFY_SCOPES = ('playlist-read-private, user-library-read, '
                   'playlist-modify-public, playlist-modify-private, user-library-modify')
@@ -56,7 +99,7 @@ def open_spotify_session(config) -> spotipy.Spotify:
     except spotipy.SpotifyOauthError:
         sys.exit(f"Error opening Spotify session; could not get token for username: {config['username']}")
 
-    return spotipy.Spotify(oauth_manager=credentials_manager)
+    return spotipy.Spotify(oauth_manager=credentials_manager, requests_session=_spotify_http_session())
 
 def open_tidal_session(config = None) -> tidalapi.Session:
     try:

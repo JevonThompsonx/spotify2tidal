@@ -8,10 +8,13 @@ import sys
 from unittest import mock
 from spotify_to_tidal.auth import (
     SPOTIFY_SCOPES,
+    _CappedRetry,
     _has_graphical_browser,
     open_spotify_session,
     open_tidal_session,
 )
+import pytest
+import requests
 
 
 def test_open_spotify_session(mocker):
@@ -51,7 +54,7 @@ def test_open_spotify_session(mocker):
     )
 
     # Assert that the Spotify instance was created
-    mock_spotify_instance.assert_called_once_with(oauth_manager=mock_oauth_instance)
+    assert mock_spotify_instance.call_args.kwargs["oauth_manager"] == mock_oauth_instance
     assert spotify_instance == mock_spotify_instance.return_value
 
 
@@ -102,3 +105,21 @@ def test_has_graphical_browser_when_headless(monkeypatch):
     monkeypatch.delenv("WAYLAND_DISPLAY", raising=False)
 
     assert _has_graphical_browser() is False
+
+
+def test_capped_retry_raises_on_long_retry_after():
+    response = requests.Response()
+    response.status_code = 429
+    response.headers["Retry-After"] = "84083"
+
+    with pytest.raises(requests.exceptions.RetryError):
+        _CappedRetry(total=1).sleep(response)
+
+
+def test_capped_retry_allows_short_wait(mocker):
+    mocker.patch("urllib3.util.retry.time.sleep")
+    response = requests.Response()
+    response.status_code = 429
+    response.headers["Retry-After"] = "1"
+
+    _CappedRetry(total=1).sleep(response)
