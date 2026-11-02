@@ -3,7 +3,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-git push forgejo personal
+git push --force-with-lease forgejo personal
 
 git checkout main
 git merge personal --no-edit
