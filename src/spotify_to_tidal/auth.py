@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 
+import os
 import sys
 import spotipy
 import tidalapi
@@ -13,6 +14,16 @@ __all__ = [
 
 SPOTIFY_SCOPES = 'playlist-read-private, user-library-read'
 
+def _has_graphical_browser() -> bool:
+    """ Whether opening a URL in a browser is likely to work.
+
+    On a headless Linux host webbrowser.open() can fall back to a console
+    browser, which blocks the login flow waiting for input.
+    """
+    if sys.platform in ('darwin', 'win32', 'cygwin'):
+        return True
+    return bool(os.environ.get('DISPLAY') or os.environ.get('WAYLAND_DISPLAY'))
+
 def open_spotify_session(config) -> spotipy.Spotify:
     credentials_manager = spotipy.SpotifyOAuth(username=config['username'],
        scope=SPOTIFY_SCOPES,
@@ -24,7 +35,7 @@ def open_spotify_session(config) -> spotipy.Spotify:
     try:
         credentials_manager.get_access_token(as_dict=False)
     except spotipy.SpotifyOauthError:
-        sys.exit("Error opening Spotify sesion; could not get token for username: ".format(config['username']))
+        sys.exit(f"Error opening Spotify session; could not get token for username: {config['username']}")
 
     return spotipy.Spotify(oauth_manager=credentials_manager)
 
@@ -53,7 +64,8 @@ def open_tidal_session(config = None) -> tidalapi.Session:
     url = login.verification_uri_complete
     if not url.startswith('https://'):
         url = 'https://' + url
-    webbrowser.open(url)
+    if _has_graphical_browser():
+        webbrowser.open(url)
     future.result()
     with open('.session.yml', 'w') as f:
         yaml.dump( {'session_id': session.session_id,

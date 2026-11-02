@@ -158,10 +158,20 @@ async def repeat_on_request_error(function, *args, remaining=5, **kwargs):
         return await repeat_on_request_error(function, *args, remaining=remaining-1, **kwargs)
 
 
+def _playlist_entry_track(entry: dict) -> dict | None:
+    """ Extract the track object from a Spotify playlist or saved-track entry.
+
+    Spotify's February 2026 Web API renamed playlist entries from {'track': ...}
+    to {'item': ...} for newly created development-mode client IDs, so accept
+    both shapes to stay compatible with old and new apps.
+    """
+    return entry.get('item') or entry.get('track')
+
+
 async def _fetch_all_from_spotify_in_chunks(fetch_function: Callable) -> List[dict]:
     output = []
     results = fetch_function(0)
-    output.extend([item['track'] for item in results['items'] if item['track'] is not None])
+    output.extend([track for track in map(_playlist_entry_track, results['items']) if track is not None])
 
     # Get all the remaining tracks in parallel
     if results['next']:
@@ -171,15 +181,17 @@ async def _fetch_all_from_spotify_in_chunks(fetch_function: Callable) -> List[di
             desc="Fetching additional data chunks"
         )
         for extra_result in extra_results:
-            output.extend([item['track'] for item in extra_result['items'] if item['track'] is not None])
+            output.extend([track for track in map(_playlist_entry_track, extra_result['items']) if track is not None])
 
     return output
 
 
 async def get_tracks_from_spotify_playlist(spotify_session: spotipy.Spotify, spotify_playlist):
     def _get_tracks_from_spotify_playlist(offset: int, playlist_id: str):
-        fields = "next,total,limit,items(track(name,album(name,artists),artists,track_number,duration_ms,id,external_ids(isrc))),type"
-        return spotify_session.playlist_tracks(playlist_id=playlist_id, fields=fields, offset=offset)
+        # GET /playlists/{id}/tracks was replaced by /playlists/{id}/items in the
+        # February 2026 Web API update, so use the current method without a
+        # `fields` filter (the track object moved from 'track' to 'item').
+        return spotify_session.playlist_items(playlist_id=playlist_id, offset=offset, additional_types=("track",))
 
     print(f"Loading tracks from Spotify playlist '{spotify_playlist['name']}'")
     items = await repeat_on_request_error( _fetch_all_from_spotify_in_chunks, lambda offset: _get_tracks_from_spotify_playlist(offset=offset, playlist_id=spotify_playlist["id"]))

@@ -6,7 +6,12 @@ import tidalapi
 import yaml
 import sys
 from unittest import mock
-from spotify_to_tidal.auth import open_spotify_session, open_tidal_session, SPOTIFY_SCOPES
+from spotify_to_tidal.auth import (
+    SPOTIFY_SCOPES,
+    _has_graphical_browser,
+    open_spotify_session,
+    open_tidal_session,
+)
 
 
 def test_open_spotify_session(mocker):
@@ -73,3 +78,27 @@ def test_open_spotify_session_oauth_error(mocker):
     # Call the function under test and assert sys.exit is called
     open_spotify_session(mock_config)
     mock_sys_exit.assert_called_once()
+
+
+def test_has_graphical_browser_on_linux_desktop(monkeypatch):
+    monkeypatch.setattr(sys, "platform", "linux")
+    monkeypatch.setenv("DISPLAY", ":0")
+    monkeypatch.delenv("WAYLAND_DISPLAY", raising=False)
+
+    assert _has_graphical_browser() is True
+
+
+def test_has_graphical_browser_on_wayland(monkeypatch):
+    monkeypatch.setattr(sys, "platform", "linux")
+    monkeypatch.delenv("DISPLAY", raising=False)
+    monkeypatch.setenv("WAYLAND_DISPLAY", "wayland-0")
+
+    assert _has_graphical_browser() is True
+
+
+def test_has_graphical_browser_when_headless(monkeypatch):
+    monkeypatch.setattr(sys, "platform", "linux")
+    monkeypatch.delenv("DISPLAY", raising=False)
+    monkeypatch.delenv("WAYLAND_DISPLAY", raising=False)
+
+    assert _has_graphical_browser() is False
